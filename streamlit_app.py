@@ -52,9 +52,22 @@ def read_order_history():
     orders = []
     try:
         with open(ORDERS_FILE, "r") as file:
-            for line in file:
+            for idx, line in enumerate(file):
                 if line.strip():
-                    orders.append(line.strip())
+                    # Format: "TIMESTAMP: NAME | LOCATION | ORDER | $PRICE"
+                    parts = line.strip().split(": ", 1)
+                    if len(parts) == 2:
+                        timestamp = parts[0]
+                        rest = parts[1].split("|")
+                        if len(rest) == 4:
+                            orders.append({
+                                "Index": idx,
+                                "Timestamp": timestamp,
+                                "Name": rest[0].strip(),
+                                "Location": rest[1].strip(),
+                                "Order": rest[2].strip(),
+                                "Price": rest[3].strip()
+                            })
     except FileNotFoundError:
         pass
     return orders
@@ -103,27 +116,57 @@ def update_price(line_index, new_price):
     return False
 
 
-def delete_order(line_index):
-    """Delete an order from both files."""
-    success = True
+def delete_orders_by_history_index(history_indices):
+    """Delete multiple orders by their indices in order_history.txt from both files."""
+    # Sort indices in reverse so we delete from highest to lowest (prevents index shifting)
+    history_indices = sorted(history_indices, reverse=True)
     
-    # Delete from prices.txt
     try:
-        with open(PRICES_FILE, "r") as file:
-            lines = file.readlines()
+        # Read order_history.txt to get the orders to delete
+        with open(ORDERS_FILE, "r") as file:
+            history_lines = file.readlines()
         
-        if 0 <= line_index < len(lines):
-            lines.pop(line_index)
-            with open(PRICES_FILE, "w") as file:
-                file.writelines(lines)
+        orders_to_delete = []
+        for idx in history_indices:
+            if 0 <= idx < len(history_lines):
+                line = history_lines[idx].strip()
+                # Parse to get Location, Order, Price
+                parts = line.split(": ", 1)
+                if len(parts) == 2:
+                    rest = parts[1].split("|")
+                    if len(rest) == 4:
+                        orders_to_delete.append({
+                            "location": rest[1].strip(),
+                            "order": rest[2].strip(),
+                            "price": rest[3].strip()
+                        })
+        
+        # Delete from order_history.txt
+        for idx in history_indices:
+            if 0 <= idx < len(history_lines):
+                history_lines.pop(idx)
+        
+        with open(ORDERS_FILE, "w") as file:
+            file.writelines(history_lines)
+        
+        # Delete matching entries from prices.txt
+        with open(PRICES_FILE, "r") as file:
+            price_lines = file.readlines()
+        
+        # Remove lines that match the deleted orders (delete from highest index first)
+        for order in orders_to_delete:
+            price_lines = [line for line in price_lines if not (
+                line.strip().split("|")[0].strip() == order["location"] and
+                line.strip().split("|")[1].strip() == order["order"] and
+                line.strip().split("|")[2].strip() == order["price"]
+            )]
+        
+        with open(PRICES_FILE, "w") as file:
+            file.writelines(price_lines)
+        
+        return True
     except FileNotFoundError:
-        success = False
-    
-    # Note: order_history.txt is append-only and not meant to be deleted from,
-    # but we'll leave a comment about which order was deleted
-    # Alternatively, you could implement a deletion log here
-    
-    return success
+        return False
 
 
 # ==================== PAGE 1: ADD ORDER ====================
@@ -206,7 +249,7 @@ def page_add_order():
 def page_view_orders():
     st.title("👀 View All Orders")
     
-    orders = read_prices_file()
+    orders = read_order_history()
     
     if not orders:
         st.info("No orders found. Start by adding a new order!")
@@ -214,11 +257,35 @@ def page_view_orders():
         df = pd.DataFrame(orders)
         # Sort by Location alphabetically
         df = df.sort_values(by="Location").reset_index(drop=True)
-        # Display without the Index column for cleaner view
-        display_df = df[["Location", "Order", "Price"]]
         
         st.subheader(f"Total Orders: {len(orders)}")
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        
+        # Initialize session state for checkboxes if not exists
+        if "selected_orders" not in st.session_state:
+            st.session_state.selected_orders = {i: False for i in range(len(df))}
+        
+        # Display table with checkboxes
+        cols = st.columns([0.5, 1.5, 1.5, 1.5, 1.5, 1])
+        cols[0].write("**Select**")
+        cols[1].write("**Timestamp**")
+        cols[2].write("**Name**")
+        cols[3].write("**Location**")
+        cols[4].write("**Order / Price**")
+        
+        for idx, row in df.iterrows():
+            cols = st.columns([0.5, 1.5, 1.5, 1.5, 1.5, 1])
+            st.session_state.selected_orders[idx] = cols[0].checkbox(
+                label="Select",
+                value=st.session_state.selected_orders.get(idx, False),
+                key=f"checkbox_{idx}",
+                label_visibility="collapsed"
+            )
+            cols[1].write(row["Timestamp"])
+            cols[2].write(row["Name"])
+            cols[3].write(row["Location"])
+            cols[4].write(f"{row['Order']} / {row['Price']}")
+        
+        st.markdown("---")
         
         # Calculate statistics
         col1, col2, col3 = st.columns(3)
@@ -230,12 +297,31 @@ def page_view_orders():
             st.metric("Highest Order", f"${max(prices):.2f}")
         with col3:
             st.metric("Lowest Order", f"${min(prices):.2f}")
+        
+        st.markdown("---")
+        
+        # Delete button
+        selected_indices = [idx for idx, selected in st.session_state.selected_orders.items() if selected]
+        delete_disabled = len(selected_indices) == 0
+        
+        if st.button(
+            f"🗑️ Delete Selected Orders ({len(selected_indices)})",
+            disabled=delete_disabled,
+            use_container_width=True,
+            type="secondary"
+        ):
+            if delete_orders_by_history_index(selected_indices):
+                st.success(f"✅ {len(selected_indices)} order(s) deleted successfully!")
+                st.session_state.selected_orders = {}
+                st.rerun()
+            else:
+                st.error("Failed to delete orders")
 
 
 # ==================== PAGE 3: UPDATE/DELETE ORDERS ====================
 
-def page_update_delete():
-    st.title("✏️ Update / Delete Orders")
+def page_update_prices():
+    st.title("✏️ Update Prices")
     
     orders = read_prices_file()
     
@@ -243,14 +329,25 @@ def page_update_delete():
         st.info("No orders found. Start by adding a new order!")
         return
     
-    st.subheader("Select an order to edit or delete")
+    st.subheader("Select an order to update the price")
     
-    # Create a display dataframe with row numbers
+    # Create a display dataframe with row numbers (narrow)
     df = pd.DataFrame(orders)
     df.insert(0, "No.", range(1, len(df) + 1))
     display_df = df[["No.", "Location", "Order", "Price"]]
     
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    # Use column config to make No. column narrower
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "No.": st.column_config.NumberColumn(
+                "No.",
+                width="small"
+            )
+        }
+    )
     
     st.markdown("---")
     
@@ -259,7 +356,7 @@ def page_update_delete():
     
     with col1:
         selected_index = st.number_input(
-            "Select order number to modify (1-indexed):",
+            "Select order number to update (1-indexed):",
             min_value=1,
             max_value=len(orders),
             value=1
@@ -281,47 +378,22 @@ def page_update_delete():
             st.write(f"**Price:** {selected_order['Price']}")
         
         st.markdown("---")
+        st.subheader("Update Price")
+        old_price = float(selected_order['Price'].replace("$", ""))
+        new_price = st.number_input(
+            "New Price ($)",
+            min_value=0.0,
+            value=old_price,
+            step=0.01,
+            format="%.2f"
+        )
         
-        # Action buttons
-        tab1, tab2 = st.tabs(["Update Price", "Delete Order"])
-        
-        with tab1:
-            st.subheader("Update Price")
-            old_price = float(selected_order['Price'].replace("$", ""))
-            new_price = st.number_input(
-                "New Price ($)",
-                min_value=0.0,
-                value=old_price,
-                step=0.01,
-                format="%.2f"
-            )
-            
-            if st.button("💾 Update Price", use_container_width=True):
-                if update_price(actual_index, new_price):
-                    st.success(f"✅ Price updated from ${old_price:.2f} to ${new_price:.2f}")
-                    st.rerun()
-                else:
-                    st.error("Failed to update price")
-        
-        with tab2:
-            st.subheader("Delete Order")
-            st.warning(
-                f"⚠️ You are about to delete:\n\n"
-                f"**Location:** {selected_order['Location']}\n\n"
-                f"**Order:** {selected_order['Order']}\n\n"
-                f"**Price:** {selected_order['Price']}\n\n"
-                f"This order will be removed from both files."
-            )
-            
-            confirmation = st.checkbox("I confirm I want to delete this order")
-            
-            if confirmation:
-                if st.button("🗑️ Delete Order", use_container_width=True, type="secondary"):
-                    if delete_order(actual_index):
-                        st.success("✅ Order deleted successfully!")
-                        st.rerun()
-                    else:
-                        st.error("Failed to delete order")
+        if st.button("💾 Update Price", use_container_width=True):
+            if update_price(actual_index, new_price):
+                st.success(f"✅ Price updated from ${old_price:.2f} to ${new_price:.2f}")
+                st.rerun()
+            else:
+                st.error("Failed to update price")
 
 
 # ==================== MAIN APP ====================
@@ -331,7 +403,7 @@ def main():
     st.sidebar.title("📋 Order Tracker")
     page = st.sidebar.radio(
         "Navigation",
-        ["Add Order", "View Orders", "Update/Delete Orders"],
+        ["Add Order", "View Orders", "Update Prices"],
         index=0
     )
     
@@ -340,8 +412,8 @@ def main():
         """
         **How to use:**
         - **Add Order**: Create and save new orders
-        - **View Orders**: See all saved orders in a table
-        - **Update/Delete**: Edit prices or remove orders
+        - **View Orders**: See all orders and delete as needed
+        - **Update Prices**: Edit order prices
         """
     )
     
@@ -350,8 +422,8 @@ def main():
         page_add_order()
     elif page == "View Orders":
         page_view_orders()
-    elif page == "Update/Delete Orders":
-        page_update_delete()
+    elif page == "Update Prices":
+        page_update_prices()
 
 
 if __name__ == "__main__":
