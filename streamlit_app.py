@@ -131,32 +131,47 @@ def delete_order(line_index):
 def page_add_order():
     st.title("📝 Add New Order")
     
+    # Customer info
     col1, col2 = st.columns(2)
-    
     with col1:
         name = st.text_input("Customer Name", placeholder="Enter customer name")
+    with col2:
         location = st.text_input("Restaurant/Location", placeholder="Enter location")
     
-    with col2:
-        main_item = st.text_input("Main Item", placeholder="e.g., Burger")
-        is_combo = st.checkbox("Is it a combo?")
+    st.markdown("---")
+    
+    # Combo selector
+    is_combo = st.checkbox("Is this a combo order?")
     
     if is_combo:
-        combo_price = st.number_input("Combo Price ($)", min_value=0.0, step=0.01, format="%.2f")
+        col1, col2 = st.columns(2)
+        with col1:
+            main_item = st.text_input("Main Item", placeholder="e.g., Burger Combo")
+        with col2:
+            combo_price = st.number_input("Combo Price ($)", min_value=0.0, step=0.01, format="%.2f")
         side = ""
         drink = ""
         total_price = combo_price
     else:
-        col3, col4, col5 = st.columns(3)
-        with col3:
-            main_price = st.number_input("Main Item Price ($)", min_value=0.0, step=0.01, format="%.2f")
+        # Main item and price
+        col1, col2 = st.columns(2)
+        with col1:
+            main_item = st.text_input("Main Item", placeholder="e.g., Burger")
+        with col2:
+            main_price = st.number_input("Main Price ($)", min_value=0.0, step=0.01, format="%.2f")
         
-        side = st.text_input("Side Item (optional)", placeholder="e.g., Fries")
-        with col4:
+        # Side item and price
+        col1, col2 = st.columns(2)
+        with col1:
+            side = st.text_input("Side Item (optional)", placeholder="e.g., Fries")
+        with col2:
             side_price = st.number_input("Side Price ($)", min_value=0.0, step=0.01, format="%.2f")
         
-        drink = st.text_input("Drink (optional)", placeholder="e.g., Coke")
-        with col5:
+        # Drink item and price
+        col1, col2 = st.columns(2)
+        with col1:
+            drink = st.text_input("Drink (optional)", placeholder="e.g., Coke")
+        with col2:
             drink_price = st.number_input("Drink Price ($)", min_value=0.0, step=0.01, format="%.2f")
         
         total_price = main_price + side_price + drink_price
@@ -197,6 +212,8 @@ def page_view_orders():
         st.info("No orders found. Start by adding a new order!")
     else:
         df = pd.DataFrame(orders)
+        # Sort by Location alphabetically
+        df = df.sort_values(by="Location").reset_index(drop=True)
         # Display without the Index column for cleaner view
         display_df = df[["Location", "Order", "Price"]]
         
@@ -228,9 +245,10 @@ def page_update_delete():
     
     st.subheader("Select an order to edit or delete")
     
-    # Create a display dataframe without index
+    # Create a display dataframe with row numbers
     df = pd.DataFrame(orders)
-    display_df = df[["Location", "Order", "Price"]]
+    df.insert(0, "No.", range(1, len(df) + 1))
+    display_df = df[["No.", "Location", "Order", "Price"]]
     
     st.dataframe(display_df, use_container_width=True, hide_index=True)
     
