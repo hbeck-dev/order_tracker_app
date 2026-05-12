@@ -96,20 +96,38 @@ def save_new_order(name, location, main, side, drink, price):
 
 
 def update_price(line_index, new_price):
-    """Update the price of a specific line in prices.txt."""
+    """Update the price of a specific line in prices.txt and order_history.txt."""
     try:
         with open(PRICES_FILE, "r") as file:
-            lines = file.readlines()
-        
-        if 0 <= line_index < len(lines):
-            parts = lines[line_index].strip().split("|")
-            if len(parts) == 3:
-                location = parts[0].strip()
-                full_order = parts[1].strip()
-                lines[line_index] = f"{location} | {full_order} | ${new_price:.2f}\n"
-                
+            price_lines = file.readlines()
+
+        if 0 <= line_index < len(price_lines):
+            price_parts = price_lines[line_index].strip().split("|")
+            if len(price_parts) == 3:
+                location = price_parts[0].strip()
+                full_order = price_parts[1].strip()
+                price_lines[line_index] = f"{location} | {full_order} | ${new_price:.2f}\n"
+
                 with open(PRICES_FILE, "w") as file:
-                    file.writelines(lines)
+                    file.writelines(price_lines)
+
+                # Also update the corresponding order's price in order_history.txt
+                if os.path.exists(ORDERS_FILE):
+                    with open(ORDERS_FILE, "r") as file:
+                        history_lines = file.readlines()
+
+                    if 0 <= line_index < len(history_lines):
+                        history_parts = history_lines[line_index].strip().split(": ", 1)
+                        if len(history_parts) == 2:
+                            timestamp = history_parts[0]
+                            rest = history_parts[1].split("|")
+                            if len(rest) == 4:
+                                history_lines[line_index] = (
+                                    f"{timestamp}: {rest[0].strip()} | {rest[1].strip()} | "
+                                    f"{rest[2].strip()} | ${new_price:.2f}\n"
+                                )
+                                with open(ORDERS_FILE, "w") as file:
+                                    file.writelines(history_lines)
                 return True
     except FileNotFoundError:
         pass
