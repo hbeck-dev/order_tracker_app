@@ -35,6 +35,7 @@ def read_prices_file():
                 if len(parts) == 3:
                     orders.append({
                         "Index": idx,
+                        "LineIndex": idx,
                         "Location": parts[0].strip(),
                         "Order": parts[1].strip(),
                         "Price": parts[2].strip()
@@ -377,12 +378,14 @@ def page_update_prices():
             "Select order number to update (1-indexed):",
             min_value=1,
             max_value=len(orders),
-            value=1
+            value=1,
+            key="selected_price_order"
         )
         actual_index = selected_index - 1
     
     if actual_index < len(orders):
         selected_order = orders[actual_index]
+        selected_line_index = selected_order["LineIndex"]
         
         st.markdown("---")
         st.subheader("Selected Order")
@@ -403,11 +406,12 @@ def page_update_prices():
             min_value=0.0,
             value=old_price,
             step=0.01,
-            format="%.2f"
+            format="%.2f",
+            key="new_price_value"
         )
         
         if st.button("💾 Update Price", use_container_width=True):
-            if update_price(actual_index, new_price):
+            if update_price(selected_line_index, new_price):
                 st.success(f"✅ Price updated from ${old_price:.2f} to ${new_price:.2f}")
                 st.rerun()
             else:
